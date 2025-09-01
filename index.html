@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="离线小说编辑助手 - 随时随地创作你的文学作品">
+    <!-- 移动设备支持 -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="小说助手">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    
+    <title>小说编辑助手 V1.0</title>
+    <!-- 预缓存提示 -->
+    <link rel="preload" href="style.css" as="style">
+    <!-- PWA配置 -->
+    <link rel="manifest" href="/manifest.json">
+    <!-- 应用图标 -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/NoEnvelop.png">
+    <link rel="apple-touch-icon" sizes="192x192" href="/NoEnvelop.png">
+    <link rel="preload" href="app.js" as="script">
+    
+    <!-- 本地样式文件 -->
+    <link rel="stylesheet" href="style.css">
+    <!-- 引入Quill编辑器样式 -->
+    <link href="libs/quill.snow.css" rel="stylesheet">
+</head>
+<body>
+    <!-- 书架界面 (默认显示) -->
+    <div id="bookshelf-view" class="container">
+        <header>
+            <h1>我的书架</h1>
+            <div class="header-actions">
+                <button id="create-book-btn">创建新作品</button>
+            </div>
+        </header>
+        
+        <div id="books-grid" class="books-grid">
+            <!-- 书籍卡片将在这里动态生成 -->
+        </div>
+    </div>
+    
+    <!-- 编辑器界面 (默认隐藏) -->
+    <div id="editor-view" class="container" style="display: none;">
+        <header>
+            <h1>小说编辑助手 V1.0</h1>
+            <div class="header-actions">
+                <button id="back-to-bookshelf-btn">返回书架</button>
+                <button id="book-info-btn">书籍信息</button>
+                <button id="save-btn">保存章节</button>
+                <div class="export-options">
+                    <input type="checkbox" id="export-all-chapters" checked>
+                    <label for="export-all-chapters">导出所有章节</label>
+                    <button id="export-btn">导出TXT</button>
+                </div>
+                <span id="save-status">未保存</span>
+            </div>
+        </header>
+        
+        <!-- 章节管理区域 -->
+        <div class="chapter-management">
+            <div class="chapter-actions">
+                <input type="text" id="new-chapter-name" placeholder="输入章节名称">
+                <button id="create-chapter-btn">创建章节</button>
+            </div>
+            <div class="chapter-list-container">
+                <h3>章节列表</h3>
+                <div id="chapter-list" class="chapter-list">
+                    <!-- 章节列表将在这里动态生成 -->
+                </div>
+            </div>
+        </div>
+        
+        <div class="editor-container">
+            <!-- 工具栏 -->
+            <div class="toolbar">
+                <div class="format-group">
+                    <button class="tool-btn" data-command="formatBlock" data-value="h1">标题1</button>
+                    <button class="tool-btn" data-command="formatBlock" data-value="h2">标题2</button>
+                    <button class="tool-btn" data-command="formatBlock" data-value="p">正文</button>
+                </div>
+                
+                <div class="format-group">
+                    <button class="tool-btn" data-command="bold">粗体</button>
+                    <button class="tool-btn" data-command="italic">斜体</button>
+                    <button class="tool-btn" data-command="underline">下划线</button>
+                </div>
+                
+                <div class="format-group">
+                    <button class="tool-btn" data-command="insertUnorderedList">无序列表</button>
+                    <button class="tool-btn" data-command="insertOrderedList">有序列表</button>
+                    <button class="tool-btn" data-command="blockquote">引用</button>
+                </div>
+                
+                <div class="format-group">
+                    <button id="insert-image-btn" class="tool-btn">插入图片</button>
+                    <input type="file" id="image-upload" accept="image/*" style="display: none;">
+                </div>
+                
+                <!-- 特殊符号折叠面板 -->
+                <div class="special-chars-panel">
+                    <button id="toggle-special-chars" class="tool-btn">特殊符号 ▼</button>
+                    <div id="special-chars-content" class="special-chars-content">
+                        <div class="format-group">
+                            <button class="tool-btn special-char" data-char="「">「</button>
+                            <button class="tool-btn special-char" data-char="」">」</button>
+                            <button class="tool-btn special-char" data-char="“">“</button>
+                            <button class="tool-btn special-char" data-char="”">”</button>
+                            <button class="tool-btn special-char" data-char="——">——</button>
+                            <button class="tool-btn special-char" data-char="…">…</button>
+                        </div>
+                        
+                        <div class="format-group">
+                            <button class="tool-btn special-char" data-char="♥">♥</button>
+                            <button class="tool-btn special-char" data-char="❤">❤</button>
+                            <button class="tool-btn special-char" data-char="♡">♡</button>
+                            <button class="tool-btn special-char" data-char="★">★</button>
+                            <button class="tool-btn special-char" data-char="☆">☆</button>
+                            <button class="tool-btn special-char" data-char="✦">✦</button>
+                        </div>
+                        
+                        <div class="format-group">
+                            <button class="tool-btn special-char" data-char="✓">✓</button>
+                            <button class="tool-btn special-char" data-char="✗">✗</button>
+                            <button class="tool-btn special-char" data-char="✕">✕</button>
+                            <button class="tool-btn special-char" data-char="✖">✖</button>
+                            <button class="tool-btn special-char" data-char="✏">✏</button>
+                            <button class="tool-btn special-char" data-char="✒">✒</button>
+                        </div>
+                        
+                        <div class="format-group">
+                            <button class="tool-btn special-char" data-char="♠">♠</button>
+                            <button class="tool-btn special-char" data-char="♣">♣</button>
+                            <button class="tool-btn special-char" data-char="♥">♥</button>
+                            <button class="tool-btn special-char" data-char="♦">♦</button>
+                            <button class="tool-btn special-char" data-char="♪">♪</button>
+                            <button class="tool-btn special-char" data-char="♫">♫</button>
+                        </div>
+                        
+                        <div class="format-group">
+                            <button class="tool-btn special-char" data-char="♂">♂</button>
+                            <button class="tool-btn special-char" data-char="♀">♀</button>
+                            <button class="tool-btn special-char" data-char="☯">☯</button>
+                            <button class="tool-btn special-char" data-char="✵">✵</button>
+                            <button class="tool-btn special-char" data-char="✶">✶</button>
+                            <button class="tool-btn special-char" data-char="✷">✷</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 编辑区域 -->
+            <div class="editor-wrapper">
+                <div id="editor" class="editor-content">
+                    <p>开始编写你的小说...</p>
+                </div>
+            </div>
+        </div>
+        
+        <footer>
+            <p>&copy; 2025 小说编辑助手 - 轻松创作你的文学作品</p>
+        </footer>
+    </div>
+    
+    <!-- 创建新作品模态框 -->
+    <div id="create-book-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>创建新作品</h2>
+                <span id="close-create-book-modal-btn" class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="new-book-title">作品名称：</label>
+                    <input type="text" id="new-book-title" placeholder="输入作品名称">
+                </div>
+                <div class="form-group">
+                    <label for="new-book-description">作品简介：</label>
+                    <textarea id="new-book-description" rows="4" placeholder="输入作品简介（可选）"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="new-book-cover">封面图片：</label>
+                    <input type="file" id="new-book-cover" accept="image/*">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="confirm-create-book-btn" class="btn-primary">创建</button>
+                <button id="cancel-create-book-btn" class="btn-secondary">取消</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 书籍信息编辑模态框 -->
+    <div id="book-info-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>编辑书籍信息</h2>
+                <span id="close-modal-btn" class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="book-title">书籍名称：</label>
+                    <input type="text" id="book-title" placeholder="输入书籍名称">
+                </div>
+                <div class="form-group">
+                    <label for="book-description">书籍简介：</label>
+                    <textarea id="book-description" rows="4" placeholder="输入书籍简介"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="book-cover">封面图片：</label>
+                    <input type="file" id="book-cover" accept="image/*">
+                    <div id="current-cover" class="current-cover-preview" style="display: none;">
+                        <img id="cover-preview" src="" alt="当前封面">
+                        <button id="remove-cover-btn" class="btn-secondary">移除封面</button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="save-book-info-btn" class="btn-primary">保存</button>
+                <button id="cancel-book-info-btn" class="btn-secondary">取消</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 导出设置模态框 -->
+    <div id="export-settings-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>导出设置</h2>
+                <span id="close-export-settings-modal-btn" class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="export-filename">文件名：</label>
+                    <input type="text" id="export-filename" placeholder="输入文件名">
+                </div>
+                <div class="form-group">
+                    <label for="export-format">导出格式：</label>
+                    <select id="export-format">
+                        <option value="txt">TXT文本</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="export-with-title" checked>
+                        包含书籍标题
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="export-with-description" checked>
+                        包含书籍简介
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="confirm-export-btn" class="btn-primary">确认导出</button>
+                <button id="cancel-export-btn" class="btn-secondary">取消</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 设置模态框 -->
+    <div id="settings-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>应用设置</h2>
+                <span id="close-settings-modal-btn" class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <h3>UI个性化</h3>
+                <div class="form-group">
+                    <label for="theme-color">主题颜色：</label>
+                    <div class="theme-colors">
+                        <label><input type="radio" name="theme-color" value="default"> 默认</label>
+                        <label><input type="radio" name="theme-color" value="blue"> 蓝色</label>
+                        <label><input type="radio" name="theme-color" value="green"> 绿色</label>
+                        <label><input type="radio" name="theme-color" value="purple"> 紫色</label>
+                        <label><input type="radio" name="theme-color" value="red"> 红色</label>
+                        <label><input type="radio" name="theme-color" value="orange"> 橙色</label>
+                        <label><input type="radio" name="theme-color" value="custom"> 自定义</label>
+                    </div>
+                    <div id="custom-color-container" class="form-group" style="margin-top: 10px; display: none;">
+                        <label for="custom-primary-color">主色调：</label>
+                        <input type="color" id="custom-primary-color" value="#165DFF">
+                        <label for="custom-hover-color" style="margin-left: 10px;">悬停色：</label>
+                        <input type="color" id="custom-hover-color" value="#4080FF">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="card-layout">书籍卡片布局：</label>
+                    <select id="card-layout">
+                        <option value="list">列表视图</option>
+                        <option value="grid" selected>网格视图</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="background-type">背景样式：</label>
+                    <select id="background-type">
+                        <option value="solid">纯色背景</option>
+                        <option value="image">图片背景</option>
+                    </select>
+                </div>
+                <div id="background-image-container" class="form-group" style="margin-top: 10px; display: none;">
+                    <label for="background-image-upload">上传背景图片：</label>
+                    <input type="file" id="background-image-upload" accept="image/*">
+                    <div id="background-image-preview" style="margin-top: 10px; max-width: 200px; display: none;">
+                        <img id="preview-bg-image" src="" alt="背景预览" style="max-width: 100%; border-radius: 4px;">
+                        <button id="remove-bg-image-btn" class="btn-secondary" style="margin-top: 5px;">移除背景</button>
+                    </div>
+                </div>
+                <div id="solid-background-container" class="form-group" style="margin-top: 10px;">
+                    <label for="background-color">背景颜色：</label>
+                    <input type="color" id="background-color" value="#f5f5f5">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="save-settings-btn" class="btn-primary">保存设置</button>
+                <button id="cancel-settings-btn" class="btn-secondary">取消</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 本地依赖库 -->
+    <script src="libs/quill.js"></script>
+    <script src="libs/FileSaver.min.js"></script>
+    <script src="libs/docx.min.js"></script>
+    
+    <!-- 主应用脚本 -->
+    <script src="app.js"></script>
+    
+    <!-- Service Worker注册 -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/service-worker.js')
+                    .then(registration => {
+                        console.log('Service Worker 注册成功:', registration.scope);
+                    })
+                    .catch(error => {
+                        console.log('Service Worker 注册失败:', error);
+                    });
+            });
+        }
+        
+        // 监听在线/离线状态变化
+        window.addEventListener('online', () => {
+            console.log('网络连接已恢复');
+            // 可以在这里添加一些同步操作
+        });
+        
+        window.addEventListener('offline', () => {
+            console.log('网络连接已断开，应用将在离线模式下继续工作');
+        });
+    </script>
+</body>
+</html>
