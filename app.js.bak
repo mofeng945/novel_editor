@@ -1,0 +1,1047 @@
+(function() {
+    // 初始化Quill编辑器
+    const quill = new Quill('#editor', {
+        theme: 'snow',
+        placeholder: '开始编写你的小说...',
+        modules: {
+            toolbar: false // 自定义工具栏
+        }
+    });
+
+    // DOM元素引用
+    // 视图容器
+    const bookshelfView = document.getElementById('bookshelf-view');
+    const editorView = document.getElementById('editor-view');
+    
+    // 书架相关元素
+    const createBookBtn = document.getElementById('create-book-btn');
+    const booksGrid = document.getElementById('books-grid');
+    const backToBookshelfBtn = document.getElementById('back-to-bookshelf-btn');
+    
+    // 编辑相关元素
+    const saveStatus = document.getElementById('save-status');
+    const saveBtn = document.getElementById('save-btn');
+    const exportBtn = document.getElementById('export-btn');
+    const insertImageBtn = document.getElementById('insert-image-btn');
+    const imageUpload = document.getElementById('image-upload');
+    const chapterList = document.getElementById('chapter-list');
+    const newChapterName = document.getElementById('new-chapter-name');
+    const createChapterBtn = document.getElementById('create-chapter-btn');
+    const renameChapterBtn = document.getElementById('rename-chapter-btn');
+    
+    // 书籍信息相关元素
+    const bookInfoBtn = document.getElementById('book-info-btn');
+    const bookInfoModal = document.getElementById('book-info-modal');
+    const closeModalBtn = document.getElementById('close-modal-btn');
+    const saveBookInfoBtn = document.getElementById('save-book-info-btn');
+    const cancelBookInfoBtn = document.getElementById('cancel-book-info-btn');
+    const bookTitleInput = document.getElementById('book-title');
+    const bookDescriptionInput = document.getElementById('book-description');
+    const bookCoverInput = document.getElementById('book-cover');
+    const currentCoverPreview = document.getElementById('current-cover');
+    const coverPreview = document.getElementById('cover-preview');
+    const removeCoverBtn = document.getElementById('remove-cover-btn');
+    
+    // 创建新作品相关元素
+    const createBookModal = document.getElementById('create-book-modal');
+    const closeCreateBookModalBtn = document.getElementById('close-create-book-modal-btn');
+    const confirmCreateBookBtn = document.getElementById('confirm-create-book-btn');
+    const cancelCreateBookBtn = document.getElementById('cancel-create-book-btn');
+    const newBookTitleInput = document.getElementById('new-book-title');
+    const newBookDescriptionInput = document.getElementById('new-book-description');
+    const newBookCoverInput = document.getElementById('new-book-cover');
+    
+    // 导出设置相关元素
+    const exportSettingsModal = document.getElementById('export-settings-modal');
+    const closeExportSettingsModalBtn = document.getElementById('close-export-settings-modal-btn');
+    const confirmExportBtn = document.getElementById('confirm-export-btn');
+    const cancelExportBtn = document.getElementById('cancel-export-btn');
+    const exportFilenameInput = document.getElementById('export-filename');
+    const exportWithTitleCheckbox = document.getElementById('export-with-title');
+    const exportWithDescriptionCheckbox = document.getElementById('export-with-description');
+    
+    // 设置相关元素
+    const settingsModal = document.getElementById('settings-modal');
+    const closeSettingsModalBtn = document.getElementById('close-settings-modal-btn');
+    const saveSettingsBtn = document.getElementById('save-settings-btn');
+    const cancelSettingsBtn = document.getElementById('cancel-settings-btn');
+    const themeColorRadios = document.querySelectorAll('input[name="theme-color"]');
+    const cardLayoutSelect = document.getElementById('card-layout');
+    
+    // 添加设置按钮到书架视图
+    const bookshelfHeaderActions = document.querySelector('#bookshelf-view .header-actions');
+    const settingsBtn = document.createElement('button');
+    settingsBtn.textContent = '设置';
+    settingsBtn.id = 'settings-btn';
+    bookshelfHeaderActions.appendChild(settingsBtn);
+    
+    // 添加设置按钮到编辑器视图
+    const editorHeaderActions = document.querySelector('#editor-view .header-actions');
+    const settingsBtnEditor = document.createElement('button');
+    settingsBtnEditor.textContent = '设置';
+    settingsBtnEditor.id = 'settings-btn-editor';
+    editorHeaderActions.insertBefore(settingsBtnEditor, editorHeaderActions.querySelector('.export-options'));
+
+    // 应用状态
+    let books = []; // 所有书籍的集合
+    let currentBookId = null; // 当前选中的书籍ID
+    let currentBook = null; // 当前选中的书籍对象
+    let chapters = []; // 当前书籍的章节列表
+    let currentChapterId = null; // 当前选中的章节ID
+    let saveTimer = null; // 自动保存计时器
+    let isRenaming = false; // 是否正在重命名章节
+    let chapterBeingRenamed = null; // 正在重命名的章节ID
+    let appSettings = { // 应用设置
+        themeColor: 'default',
+        cardLayout: 'grid'
+    };
+
+    // 初始化应用
+    function initApp() {
+        loadBooks();
+        loadAppSettings();
+        
+        // 如果没有书籍，创建一本默认书籍
+        if (books.length === 0) {
+            createNewBook('我的小说', '');
+        }
+        
+        // 显示书架
+        showBookshelf();
+        
+        // 设置事件监听
+        setupEvents();
+    }
+
+    // 从localStorage加载所有书籍
+    function loadBooks() {
+        const savedBooks = localStorage.getItem('novelEditorBooks');
+        if (savedBooks) {
+            books = JSON.parse(savedBooks);
+        } else {
+            books = [];
+        }
+    }
+
+    // 保存所有书籍到localStorage
+    function saveBooks() {
+        localStorage.setItem('novelEditorBooks', JSON.stringify(books));
+    }
+
+    // 加载当前书籍的所有章节
+    function loadChapters() {
+        if (!currentBook) return;
+        chapters = currentBook.chapters || [];
+    }
+
+    // 保存当前书籍的章节到书籍对象
+    function saveChaptersToBook() {
+        if (!currentBook) return;
+        currentBook.chapters = chapters;
+        currentBook.lastModified = new Date().toISOString();
+        saveBooks();
+    }
+
+    // 创建新书
+    function createNewBook(title, description, coverImage = null) {
+        const book = {
+            id: Date.now().toString(),
+            title: title || '我的小说',
+            description: description || '',
+            coverImage: coverImage,
+            chapters: [],
+            createdAt: new Date().toISOString(),
+            lastModified: new Date().toISOString()
+        };
+        
+        books.push(book);
+        saveBooks();
+        
+        return book.id;
+    }
+
+    // 选择书籍
+    function selectBook(bookId) {
+        // 保存当前书籍（如果有）
+        if (currentBookId) {
+            saveCurrentChapter();
+            saveChaptersToBook();
+        }
+        
+        // 查找并设置当前书籍
+        currentBook = books.find(book => book.id === bookId);
+        currentBookId = bookId;
+        
+        if (currentBook) {
+            // 加载书籍的章节
+            chapters = currentBook.chapters || [];
+            
+            // 如果没有章节，创建一个默认章节
+            if (chapters.length === 0) {
+                createNewChapter('第一章');
+            } else {
+                // 加载第一个章节
+                loadChapter(chapters[0].id);
+            }
+            
+            // 更新UI
+            updateChapterList();
+            
+            // 显示编辑器视图
+            showEditor();
+        }
+    }
+
+    // 删除书籍
+    function deleteBook(bookId) {
+        if (confirm('确定要删除这本书吗？此操作无法撤销，所有章节内容将丢失。')) {
+            const bookIndex = books.findIndex(book => book.id === bookId);
+            if (bookIndex !== -1) {
+                books.splice(bookIndex, 1);
+                saveBooks();
+                
+                // 如果删除的是当前书籍，回到书架
+                if (bookId === currentBookId) {
+                    currentBookId = null;
+                    currentBook = null;
+                    chapters = [];
+                    currentChapterId = null;
+                    showBookshelf();
+                }
+                
+                // 更新书架显示
+                updateBooksGrid();
+            }
+        }
+    }
+
+    // 显示书架视图
+    function showBookshelf() {
+        bookshelfView.style.display = 'block';
+        editorView.style.display = 'none';
+        updateBooksGrid();
+    }
+
+    // 显示编辑器视图
+    function showEditor() {
+        bookshelfView.style.display = 'none';
+        editorView.style.display = 'block';
+    }
+
+    // 更新书架显示
+    function updateBooksGrid() {
+        booksGrid.innerHTML = '';
+        
+        // 应用卡片布局设置
+        if (appSettings.cardLayout === 'list') {
+            booksGrid.classList.add('list-view');
+        } else {
+            booksGrid.classList.remove('list-view');
+        }
+        
+        books.forEach(book => {
+            const bookCard = document.createElement('div');
+            bookCard.className = 'book-card';
+            
+            // 如果有封面图片，添加封面
+            if (book.coverImage) {
+                const coverDiv = document.createElement('div');
+                coverDiv.className = 'book-card-cover';
+                const coverImg = document.createElement('img');
+                coverImg.src = book.coverImage;
+                coverImg.alt = book.title;
+                coverDiv.appendChild(coverImg);
+                bookCard.appendChild(coverDiv);
+            }
+            
+            // 书籍标题
+            const title = document.createElement('h3');
+            title.textContent = book.title;
+            
+            // 书籍简介
+            const description = document.createElement('p');
+            description.className = 'book-description';
+            description.textContent = book.description || '暂无简介';
+            
+            // 书籍元信息
+            const meta = document.createElement('div');
+            meta.className = 'book-meta';
+            meta.innerHTML = `
+                <span>章节: ${book.chapters ? book.chapters.length : 0}</span>
+                <span>${new Date(book.lastModified).toLocaleDateString()}</span>
+            `;
+            
+            // 操作按钮
+            const actions = document.createElement('div');
+            actions.className = 'book-actions';
+            
+            const editBtn = document.createElement('button');
+            editBtn.className = 'edit-book-btn';
+            editBtn.textContent = '编辑';
+            editBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                selectBook(book.id);
+            });
+            
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'delete-book-btn';
+            deleteBtn.textContent = '删除';
+            deleteBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                deleteBook(book.id);
+            });
+            
+            actions.appendChild(editBtn);
+            actions.appendChild(deleteBtn);
+            
+            // 组装卡片
+            bookCard.appendChild(title);
+            bookCard.appendChild(description);
+            bookCard.appendChild(meta);
+            bookCard.appendChild(actions);
+            
+            // 整个卡片点击也进入编辑
+            bookCard.addEventListener('click', function() {
+                selectBook(book.id);
+            });
+            
+            booksGrid.appendChild(bookCard);
+        });
+    }
+
+    // 创建新章节
+    function createNewChapter(chapterName) {
+        const chapter = {
+            id: Date.now().toString(),
+            name: chapterName,
+            content: '',
+            lastSaved: new Date().toISOString()
+        };
+        
+        chapters.push(chapter);
+        saveChaptersToBook();
+        
+        return chapter.id;
+    }
+
+    // 加载指定章节
+    function loadChapter(chapterId) {
+        // 保存当前章节（如果有）
+        if (currentChapterId) {
+            saveCurrentChapter();
+        }
+
+        const chapter = chapters.find(ch => ch.id === chapterId);
+        if (chapter) {
+            currentChapterId = chapterId;
+            quill.root.innerHTML = chapter.content || '<p>开始编写你的章节...</p>';
+            saveStatus.textContent = `已加载: ${chapter.name} (上次保存: ${new Date(chapter.lastSaved).toLocaleString()})`;
+            saveStatus.style.color = '#666';
+            updateChapterList();
+        }
+    }
+
+    // 保存当前章节
+    function saveCurrentChapter() {
+        if (!currentChapterId || !currentBook) return;
+
+        const chapter = chapters.find(ch => ch.id === currentChapterId);
+        if (chapter) {
+            chapter.content = quill.root.innerHTML;
+            chapter.lastSaved = new Date().toISOString();
+            saveChaptersToBook();
+
+            saveStatus.textContent = `已保存章节: ${chapter.name} (${new Date().toLocaleTimeString()})`;
+            saveStatus.style.color = '#4caf50';
+            
+            // 添加保存动画效果
+            saveStatus.classList.add('saving');
+            setTimeout(function() {
+                saveStatus.classList.remove('saving');
+            }, 1500);
+        }
+    }
+
+    // 重命名章节
+    function renameChapter(chapterId, newName) {
+        const chapter = chapters.find(ch => ch.id === chapterId);
+        if (chapter) {
+            chapter.name = newName;
+            saveChaptersToBook();
+            updateChapterList();
+            
+            if (chapterId === currentChapterId) {
+                saveStatus.textContent = `已保存章节: ${chapter.name} (${new Date().toLocaleTimeString()})`;
+            }
+        }
+    }
+
+    // 更新章节列表UI
+    function updateChapterList() {
+        chapterList.innerHTML = '';
+        
+        chapters.forEach(chapter => {
+            const chapterItem = document.createElement('div');
+            chapterItem.className = `chapter-item ${chapter.id === currentChapterId ? 'selected' : ''}`;
+            
+            const chapterNameSpan = document.createElement('span');
+            chapterNameSpan.className = 'chapter-name';
+            chapterNameSpan.textContent = chapter.name;
+            
+            const chapterMeta = document.createElement('span');
+            chapterMeta.className = 'chapter-meta';
+            chapterMeta.textContent = new Date(chapter.lastSaved).toLocaleTimeString();
+            
+            const chapterActions = document.createElement('div');
+            chapterActions.className = 'chapter-actions-small';
+            
+            const renameBtn = document.createElement('button');
+            renameBtn.textContent = '重命名';
+            renameBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                startRenameChapter(chapter.id);
+            });
+            
+            const deleteBtn = document.createElement('button');
+            deleteBtn.textContent = '删除';
+            deleteBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                deleteChapter(chapter.id);
+            });
+            
+            chapterActions.appendChild(renameBtn);
+            chapterActions.appendChild(deleteBtn);
+            
+            chapterItem.appendChild(chapterNameSpan);
+            chapterItem.appendChild(chapterMeta);
+            chapterItem.appendChild(chapterActions);
+            
+            chapterItem.addEventListener('click', function() {
+                loadChapter(chapter.id);
+            });
+            
+            chapterList.appendChild(chapterItem);
+        });
+        
+        // 更新重命名按钮状态
+        renameChapterBtn.disabled = !currentChapterId || isRenaming;
+    }
+
+    // 开始重命名章节
+    function startRenameChapter(chapterId) {
+        const chapter = chapters.find(ch => ch.id === chapterId);
+        if (chapter) {
+            isRenaming = true;
+            chapterBeingRenamed = chapterId;
+            newChapterName.value = chapter.name;
+            newChapterName.placeholder = '输入新的章节名称';
+            createChapterBtn.textContent = '确认重命名';
+            renameChapterBtn.disabled = true;
+            newChapterName.focus();
+        }
+    }
+
+    // 取消重命名
+    function cancelRename() {
+        isRenaming = false;
+        chapterBeingRenamed = null;
+        newChapterName.value = '';
+        newChapterName.placeholder = '输入章节名称';
+        createChapterBtn.textContent = '创建章节';
+        renameChapterBtn.disabled = !currentChapterId;
+    }
+
+    // 删除章节
+    function deleteChapter(chapterId) {
+        if (chapters.length <= 1) {
+            alert('至少需要保留一个章节');
+            return;
+        }
+        
+        if (confirm('确定要删除这个章节吗？此操作无法撤销。')) {
+            const chapterIndex = chapters.findIndex(ch => ch.id === chapterId);
+            if (chapterIndex !== -1) {
+                chapters.splice(chapterIndex, 1);
+                saveChaptersToBook();
+                
+                if (chapterId === currentChapterId) {
+                    // 如果删除的是当前章节，加载第一个章节
+                    const newChapterId = chapters[0].id;
+                    loadChapter(newChapterId);
+                }
+                
+                updateChapterList();
+            }
+        }
+    }
+
+    // 更新当前书籍信息
+    function updateBookInfo(title, description, coverImage = null) {
+        if (!currentBook) return;
+        
+        currentBook.title = title || currentBook.title;
+        currentBook.description = description || currentBook.description;
+        if (coverImage !== null) {
+            currentBook.coverImage = coverImage;
+        }
+        currentBook.lastModified = new Date().toISOString();
+        saveBooks();
+    }
+    
+    // 加载应用设置
+    function loadAppSettings() {
+        const savedSettings = localStorage.getItem('novelEditorSettings');
+        if (savedSettings) {
+            appSettings = { ...appSettings, ...JSON.parse(savedSettings) };
+            applyAppSettings();
+        }
+    }
+    
+    // 保存应用设置
+    function saveAppSettings() {
+        localStorage.setItem('novelEditorSettings', JSON.stringify(appSettings));
+        applyAppSettings();
+    }
+    
+    // 应用设置
+    function applyAppSettings() {
+        // 应用主题颜色
+        document.body.className = '';
+        if (appSettings.themeColor !== 'default') {
+            document.body.classList.add(`theme-${appSettings.themeColor}`);
+        }
+        
+        // 应用卡片布局
+        if (appSettings.cardLayout === 'list') {
+            booksGrid.classList.add('list-view');
+        } else {
+            booksGrid.classList.remove('list-view');
+        }
+    }
+
+    // 打开导出设置模态框
+    function openExportSettings() {
+        if (!currentBook) return;
+        
+        // 填充默认值
+        exportFilenameInput.value = currentBook.title || '我的小说';
+        exportWithTitleCheckbox.checked = true;
+        exportWithDescriptionCheckbox.checked = true;
+        
+        // 显示模态框
+        exportSettingsModal.style.display = 'block';
+    }
+    
+    // 执行TXT导出
+    function executeExport() {
+        try {
+            if (!currentBook) return;
+            
+            // 获取导出设置
+            const filename = exportFilenameInput.value.trim() || currentBook.title || '我的小说';
+            const includeTitle = exportWithTitleCheckbox.checked;
+            const includeDescription = exportWithDescriptionCheckbox.checked;
+            const exportAllChapters = document.getElementById('export-all-chapters').checked;
+            
+            // 创建文本内容
+            let textContent = '';
+            
+            // 添加书籍标题
+            if (includeTitle) {
+                textContent += `${currentBook.title || '我的小说'}\n\n`;
+            }
+            
+            // 如果有简介且选择包含，添加简介
+            if (includeDescription && currentBook.description) {
+                textContent += `${currentBook.description}\n\n`;
+                // 添加分隔线
+                textContent += '------------------------------------------\n\n';
+            }
+            
+            // 确定要导出的章节
+            let chaptersToExport = [];
+            if (exportAllChapters) {
+                chaptersToExport = [...chapters];
+            } else {
+                // 只导出当前章节
+                const currentChapter = chapters.find(chapter => chapter.id === currentChapterId);
+                if (currentChapter) {
+                    chaptersToExport = [currentChapter];
+                }
+            }
+            
+            // 遍历要导出的章节并添加到文本内容
+            chaptersToExport.forEach((chapter, index) => {
+                // 章节标题
+                if (index > 0) {
+                    // 在章节之间添加空行分隔
+                    textContent += '\n\n';
+                }
+                textContent += `${chapter.name}\n\n`;
+                
+                // 处理章节内容 - 提取纯文本
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = chapter.content || '';
+                const elements = tempDiv.children;
+                
+                // 遍历所有元素并添加到文本内容
+                Array.from(elements).forEach(element => {
+                    if (element.tagName === 'H1' || element.tagName === 'H2') {
+                        // 子标题
+                        textContent += `${element.textContent}\n\n`;
+                    } else if (element.tagName === 'P') {
+                        // 段落
+                        const text = element.textContent;
+                        textContent += `${text}\n\n`;
+                    } else if (element.tagName === 'UL' || element.tagName === 'OL') {
+                        // 列表
+                        const items = element.querySelectorAll('li');
+                        Array.from(items).forEach((item, itemIndex) => {
+                            const isOrdered = element.tagName === 'OL';
+                            const prefix = isOrdered ? `${itemIndex + 1}. ` : '• ';
+                            textContent += `${prefix}${item.textContent}\n`;
+                        });
+                        textContent += '\n';
+                    } else if (element.tagName === 'BLOCKQUOTE') {
+                        // 引用
+                        const quoteLines = element.textContent.split('\n');
+                        quoteLines.forEach(line => {
+                            textContent += `> ${line}\n`;
+                        });
+                        textContent += '\n';
+                    }
+                });
+            });
+            
+            // 创建文本文件并下载
+            const fileName = `${filename}.txt`;
+            const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
+            saveAs(blob, fileName);
+            
+            // 关闭模态框
+            exportSettingsModal.style.display = 'none';
+            
+            // 显示导出成功提示
+            saveStatus.textContent = 'TXT文件导出成功';
+            saveStatus.classList.add('saved');
+            
+            setTimeout(() => {
+                saveStatus.textContent = '已保存';
+                saveStatus.classList.remove('saved');
+            }, 2000);
+        } catch (error) {
+            console.error('导出TXT文件失败:', error);
+            alert('导出TXT文件时发生错误，请稍后再试。');
+        }
+    }
+
+    // 设置所有事件监听
+    function setupEvents() {
+        // 视图切换相关
+        backToBookshelfBtn.addEventListener('click', function() {
+            saveCurrentChapter();
+            saveChaptersToBook();
+            showBookshelf();
+        });
+        
+        // 创建新作品相关
+        createBookBtn.addEventListener('click', function() {
+            newBookTitleInput.value = '';
+            newBookDescriptionInput.value = '';
+            createBookModal.style.display = 'block';
+        });
+        
+        closeCreateBookModalBtn.addEventListener('click', function() {
+            createBookModal.style.display = 'none';
+        });
+        
+        cancelCreateBookBtn.addEventListener('click', function() {
+            createBookModal.style.display = 'none';
+        });
+        
+        // 点击模态框外部关闭
+        window.addEventListener('click', function(event) {
+            if (event.target === createBookModal) {
+                createBookModal.style.display = 'none';
+            }
+        });
+        
+        // 确认创建新作品
+        confirmCreateBookBtn.addEventListener('click', function() {
+            const title = newBookTitleInput.value.trim();
+            if (!title) {
+                alert('请输入作品名称');
+                return;
+            }
+            
+            const description = newBookDescriptionInput.value.trim();
+            
+            // 处理封面图片
+            if (newBookCoverInput.files && newBookCoverInput.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    const coverImage = event.target.result;
+                    const newBookId = createNewBook(title, description, coverImage);
+                    createBookModal.style.display = 'none';
+                    
+                    // 自动进入新创建的作品
+                    selectBook(newBookId);
+                    
+                    // 重置封面输入
+                    newBookCoverInput.value = '';
+                };
+                reader.readAsDataURL(newBookCoverInput.files[0]);
+            } else {
+                const newBookId = createNewBook(title, description);
+                createBookModal.style.display = 'none';
+                
+                // 自动进入新创建的作品
+                selectBook(newBookId);
+            }
+        });
+        
+        // 书籍信息编辑相关
+        bookInfoBtn.addEventListener('click', function() {
+            if (!currentBook) return;
+            
+            // 填充现有信息
+            bookTitleInput.value = currentBook.title || '我的小说';
+            bookDescriptionInput.value = currentBook.description || '';
+            
+            // 显示封面预览（如果有）
+            if (currentBook.coverImage) {
+                coverPreview.src = currentBook.coverImage;
+                currentCoverPreview.style.display = 'flex';
+            } else {
+                currentCoverPreview.style.display = 'none';
+            }
+            
+            // 重置封面输入
+            bookCoverInput.value = '';
+            
+            // 显示模态框
+            bookInfoModal.style.display = 'block';
+        });
+        
+        closeModalBtn.addEventListener('click', function() {
+            bookInfoModal.style.display = 'none';
+        });
+        
+        cancelBookInfoBtn.addEventListener('click', function() {
+            bookInfoModal.style.display = 'none';
+        });
+        
+        // 点击模态框外部关闭
+        window.addEventListener('click', function(event) {
+            if (event.target === bookInfoModal) {
+                bookInfoModal.style.display = 'none';
+            }
+        });
+        
+        // 保存书籍信息
+        saveBookInfoBtn.addEventListener('click', function() {
+            if (!currentBook) return;
+            
+            const title = bookTitleInput.value.trim() || '我的小说';
+            const description = bookDescriptionInput.value.trim();
+            
+            // 处理封面图片
+            if (bookCoverInput.files && bookCoverInput.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    const coverImage = event.target.result;
+                    updateBookInfo(title, description, coverImage);
+                    bookInfoModal.style.display = 'none';
+                    
+                    // 更新书架显示
+                    updateBooksGrid();
+                    
+                    // 显示保存成功提示
+                    saveStatus.textContent = '书籍信息已保存';
+                    saveStatus.classList.add('saved');
+                    
+                    setTimeout(() => {
+                        saveStatus.textContent = '已保存';
+                        saveStatus.classList.remove('saved');
+                    }, 2000);
+                };
+                reader.readAsDataURL(bookCoverInput.files[0]);
+            } else {
+                // 如果没有选择新封面，不修改现有封面
+                updateBookInfo(title, description);
+                bookInfoModal.style.display = 'none';
+                
+                // 更新书架显示
+                updateBooksGrid();
+                
+                // 显示保存成功提示
+                saveStatus.textContent = '书籍信息已保存';
+                saveStatus.classList.add('saved');
+                
+                setTimeout(() => {
+                    saveStatus.textContent = '已保存';
+                    saveStatus.classList.remove('saved');
+                }, 2000);
+            }
+        });
+        
+        // 移除封面
+        removeCoverBtn.addEventListener('click', function() {
+            if (!currentBook) return;
+            currentBook.coverImage = null;
+            saveBooks();
+            currentCoverPreview.style.display = 'none';
+            bookCoverInput.value = '';
+        });
+        
+        // 定时保存功能
+        quill.on('text-change', function() {
+            if (!currentChapterId) return;
+            
+            const currentChapter = chapters.find(ch => ch.id === currentChapterId);
+            if (currentChapter) {
+                saveStatus.textContent = `未保存: ${currentChapter.name}`;
+                saveStatus.style.color = '#ff9800';
+            }
+            
+            // 清除之前的定时器
+            clearTimeout(saveTimer);
+            
+            // 设置新的定时器，30秒后自动保存
+            saveTimer = setTimeout(function() {
+                saveCurrentChapter();
+            }, 30000);
+        });
+        
+        // 手动保存按钮
+        saveBtn.addEventListener('click', function() {
+            saveCurrentChapter();
+        });
+        
+        // 创建章节按钮
+        createChapterBtn.addEventListener('click', function() {
+            const chapterName = newChapterName.value.trim();
+            if (!chapterName) {
+                alert('请输入章节名称');
+                return;
+            }
+            
+            if (isRenaming && chapterBeingRenamed) {
+                // 确认重命名
+                renameChapter(chapterBeingRenamed, chapterName);
+                cancelRename();
+            } else {
+                // 创建新章节
+                const newChapterId = createNewChapter(chapterName);
+                loadChapter(newChapterId);
+                newChapterName.value = '';
+            }
+        });
+        
+        // 重命名章节按钮
+        renameChapterBtn.addEventListener('click', function() {
+            if (currentChapterId) {
+                startRenameChapter(currentChapterId);
+            }
+        });
+        
+        // 点击其他地方取消重命名
+        document.addEventListener('click', function(e) {
+            if (isRenaming && !e.target.closest('.chapter-actions')) {
+                cancelRename();
+            }
+        });
+        
+        // 插入图片功能
+        insertImageBtn.addEventListener('click', function() {
+            imageUpload.click();
+        });
+        
+        imageUpload.addEventListener('change', function(e) {
+            if (e.target.files && e.target.files[0]) {
+                const reader = new FileReader();
+                
+                reader.onload = function(event) {
+                    const range = quill.getSelection();
+                    if (range) {
+                        quill.insertEmbed(range.index, 'image', event.target.result);
+                        // 移动光标到图片后面
+                        quill.setSelection(range.index + 1);
+                    }
+                };
+                
+                reader.readAsDataURL(e.target.files[0]);
+            }
+        });
+        
+        // 打开导出设置
+        exportBtn.addEventListener('click', function() {
+            openExportSettings();
+        });
+        
+        // 确认导出
+        confirmExportBtn.addEventListener('click', function() {
+            executeExport();
+        });
+        
+        // 取消导出
+        cancelExportBtn.addEventListener('click', function() {
+            exportSettingsModal.style.display = 'none';
+        });
+        
+        // 关闭导出设置模态框
+        closeExportSettingsModalBtn.addEventListener('click', function() {
+            exportSettingsModal.style.display = 'none';
+        });
+        
+        // 点击模态框外部关闭
+        window.addEventListener('click', function(event) {
+            if (event.target === exportSettingsModal) {
+                exportSettingsModal.style.display = 'none';
+            }
+        });
+        
+        // 设置按钮点击事件（书架视图）
+        settingsBtn.addEventListener('click', openSettingsModal);
+        
+        // 设置按钮点击事件（编辑器视图）
+        document.getElementById('settings-btn-editor').addEventListener('click', openSettingsModal);
+        
+        // 打开设置模态框的共用函数
+        function openSettingsModal() {
+            // 填充当前设置
+            themeColorRadios.forEach(radio => {
+                if (radio.value === appSettings.themeColor) {
+                    radio.checked = true;
+                }
+            });
+            cardLayoutSelect.value = appSettings.cardLayout;
+            
+            // 显示设置模态框
+            settingsModal.style.display = 'block';
+        };
+        
+        // 保存设置
+        saveSettingsBtn.addEventListener('click', function() {
+            // 获取选中的主题颜色
+            let selectedTheme = 'default';
+            themeColorRadios.forEach(radio => {
+                if (radio.checked) {
+                    selectedTheme = radio.value;
+                }
+            });
+            
+            // 更新设置
+            appSettings.themeColor = selectedTheme;
+            appSettings.cardLayout = cardLayoutSelect.value;
+            
+            // 保存设置
+            saveAppSettings();
+            
+            // 更新书架显示
+            updateBooksGrid();
+            
+            // 关闭模态框
+            settingsModal.style.display = 'none';
+            
+            // 显示保存成功提示
+            if (bookshelfView.style.display === 'block') {
+                // 显示临时提示
+                const tempMessage = document.createElement('div');
+                tempMessage.className = 'temp-message';
+                tempMessage.textContent = '设置已保存';
+                tempMessage.style.position = 'fixed';
+                tempMessage.style.top = '20px';
+                tempMessage.style.right = '20px';
+                tempMessage.style.background = 'rgba(0,0,0,0.7)';
+                tempMessage.style.color = 'white';
+                tempMessage.style.padding = '10px 20px';
+                tempMessage.style.borderRadius = '4px';
+                tempMessage.style.zIndex = '1000';
+                document.body.appendChild(tempMessage);
+                
+                setTimeout(() => {
+                    document.body.removeChild(tempMessage);
+                }, 2000);
+            }
+        });
+        
+        // 取消设置
+        cancelSettingsBtn.addEventListener('click', function() {
+            settingsModal.style.display = 'none';
+        });
+        
+        // 关闭设置模态框
+        closeSettingsModalBtn.addEventListener('click', function() {
+            settingsModal.style.display = 'none';
+        });
+        
+        // 点击模态框外部关闭
+        window.addEventListener('click', function(event) {
+            if (event.target === settingsModal) {
+                settingsModal.style.display = 'none';
+            }
+        });
+        
+        // 添加键盘快捷键支持
+        document.addEventListener('keydown', function(e) {
+            // Ctrl+S 保存
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                saveCurrentChapter();
+            }
+            // Ctrl+E 导出
+            if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
+                e.preventDefault();
+                openExportSettings();
+            }
+        });
+        
+        // 窗口关闭前提示保存
+        window.addEventListener('beforeunload', function(e) {
+            if (saveStatus.textContent.includes('未保存')) {
+                e.preventDefault();
+                e.returnValue = '你有未保存的内容，确定要离开吗？';
+                return '你有未保存的内容，确定要离开吗？';
+            }
+        });
+        
+        // 工具栏按钮功能
+        document.querySelectorAll('.tool-btn[data-command]').forEach(button => {
+            button.addEventListener('click', function() {
+                const command = this.dataset.command;
+                const value = this.dataset.value || null;
+                
+                // 使用Quill的API
+                if (command === 'formatBlock') {
+                    if (value === 'h1' || value === 'h2' || value === 'p') {
+                        quill.format('header', value === 'h1' ? 1 : value === 'h2' ? 2 : false);
+                    }
+                } else if (command === 'bold') {
+                    quill.format('bold', !quill.getFormat().bold);
+                } else if (command === 'italic') {
+                    quill.format('italic', !quill.getFormat().italic);
+                } else if (command === 'underline') {
+                    quill.format('underline', !quill.getFormat().underline);
+                } else if (command === 'insertUnorderedList') {
+                    quill.format('list', quill.getFormat().list === 'bullet' ? false : 'bullet');
+                } else if (command === 'insertOrderedList') {
+                    quill.format('list', quill.getFormat().list === 'ordered' ? false : 'ordered');
+                } else if (command === 'blockquote') {
+                    quill.format('blockquote', !quill.getFormat().blockquote);
+                }
+            });
+        });
+        
+        // 特殊符号插入
+        document.querySelectorAll('.tool-btn.special-char').forEach(button => {
+            button.addEventListener('click', function() {
+                const char = this.dataset.char;
+                quill.insertText(quill.getSelection().index, char);
+            });
+        });
+    }
+
+    // 初始化应用
+    initApp();
+})();
