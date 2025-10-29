@@ -56,10 +56,22 @@
         // 编辑相关
         editor: {
             status: document.getElementById('save-status'), btn: document.getElementById('save-btn'),
-            exportBtn: document.getElementById('export-btn'), imgBtn: document.getElementById('insert-image-btn'),
+            exportBtn: document.getElementById('export-btn'), backupBtn: document.getElementById('backup-btn'),
+            imgBtn: document.getElementById('insert-image-btn'),
             imgUpload: document.getElementById('image-upload'), chapters: document.getElementById('chapter-list'),
             newChapterName: document.getElementById('new-chapter-name'),
             createChapterBtn: document.getElementById('create-chapter-btn'),
+        },
+        // 备份相关
+        backup: {
+            modal: document.getElementById('backup-modal'),
+            closeBtn: document.getElementById('close-backup-modal-btn'),
+            createBackupBtn: document.getElementById('create-backup-btn'),
+            restoreBackupInput: document.getElementById('restore-backup-input'),
+            restoreBackupBtn: document.getElementById('restore-backup-btn'),
+            closeModalBtn: document.getElementById('close-backup-btn'),
+            autoBackupToggle: document.getElementById('auto-backup-toggle'),
+            autoBackupFrequency: document.getElementById('auto-backup-frequency')
         },
         // 书籍信息相关
         bookInfo: {
@@ -189,22 +201,270 @@
         }
     };
 
-    // 辅助函数 - 保存/加载数据
-    const saveBooks = () => localStorage.setItem('novelEditorBooks', JSON.stringify(state.books));
-    const loadBooks = () => {
-        const saved = localStorage.getItem('novelEditorBooks');
-        state.books = saved ? JSON.parse(saved) : [];
+    // 备份功能相关函数
+    const createBackup = async () => {
+        try {
+            // 确保所有数据已保存
+            await saveBooks();
+            await saveAppSettings();
+            
+            // 获取当前所有数据
+            const backupData = {
+                version: '1.0',
+                timestamp: new Date().toISOString(),
+                books: state.books,
+                settings: state.settings
+            };
+            
+            // 创建备份文件
+            const backupContent = JSON.stringify(backupData, null, 2);
+            const blob = new Blob([backupContent], { type: 'application/json' });
+            
+            // 生成文件名
+            const now = new Date();
+            const filename = `novel_backup_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}.novelbackup`;
+            
+            // 创建下载链接
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(a.href);
+            
+            // 更新最后备份时间
+            state.settings.autoBackup = state.settings.autoBackup || {};
+            state.settings.autoBackup.lastBackup = now.toISOString();
+            await saveAppSettings();
+            
+            if (els.editor.status) {
+                els.editor.status.textContent = '备份创建成功';
+                els.editor.status.classList.add('saved');
+                setTimeout(() => {
+                    els.editor.status.textContent = '已保存';
+                    els.editor.status.classList.remove('saved');
+                }, 2000);
+            }
+            
+            return true;
+        } catch (error) {
+            console.error('创建备份失败:', error);
+            alert('创建备份失败，请稍后重试');
+            return false;
+        }
+    };
+    
+    const restoreBackup = async (file) => {
+        try {
+            // 确认操作
+            if (!confirm('恢复备份将覆盖当前所有数据，确定要继续吗？')) {
+                return false;
+            }
+            
+            // 读取文件
+            const content = await file.text();
+            const backupData = JSON.parse(content);
+            
+            // 验证备份文件
+            if (!backupData.version || !backupData.books) {
+                throw new Error('无效的备份文件');
+            }
+            
+            // 恢复数据
+            state.books = backupData.books || [];
+            if (backupData.settings) {
+                state.settings = backupData.settings;
+            }
+            
+            // 保存恢复的数据
+            await saveBooks();
+            await saveAppSettings();
+            
+            // 刷新UI
+            updateBooksGrid();
+            applyAppSettings();
+            
+            // 更新自动备份设置UI
+            if (els.backup.autoBackupToggle) {
+                els.backup.autoBackupToggle.checked = state.settings.autoBackup?.enabled || false;
+            }
+            if (els.backup.autoBackupFrequency) {
+                els.backup.autoBackupFrequency.value = state.settings.autoBackup?.frequency || 'daily';
+            }
+            
+            if (els.editor.status) {
+                els.editor.status.textContent = '备份恢复成功';
+                els.editor.status.classList.add('saved');
+                setTimeout(() => {
+                    els.editor.status.textContent = '已保存';
+                    els.editor.status.classList.remove('saved');
+                }, 2000);
+            }
+            
+            return true;
+        } catch (error) {
+            console.error('恢复备份失败:', error);
+            alert('恢复备份失败，请确保选择了有效的备份文件');
+            return false;
+        }
+    };
+    
+    const checkAutoBackup = async () => {
+        // 如果自动备份未启用，直接返回
+        if (!state.settings.autoBackup || !state.settings.autoBackup.enabled) {
+            return;
+        }
+        
+        const now = new Date();
+        const lastBackup = state.settings.autoBackup.lastBackup ? new Date(state.settings.autoBackup.lastBackup) : null;
+        const frequency = state.settings.autoBackup.frequency || 'daily';
+        
+        // 判断是否需要执行备份
+        let shouldBackup = false;
+        
+        if (!lastBackup) {
+            // 从未备份过，需要备份
+            shouldBackup = true;
+        } else {
+            // 根据频率判断
+            const diffMs = now - lastBackup;
+            const diffDays = diffMs / (1000 * 60 * 60 * 24);
+            
+            switch (frequency) {
+                case 'daily':
+                    shouldBackup = diffDays >= 1;
+                    break;
+                case 'weekly':
+                    shouldBackup = diffDays >= 7;
+                    break;
+                case 'monthly':
+                    shouldBackup = diffDays >= 30;
+                    break;
+            }
+        }
+        
+        if (shouldBackup) {
+            // 询问用户是否执行自动备份
+            if (confirm('已到自动备份时间，是否创建备份？')) {
+                await createBackup();
+            }
+        }
+    };
+    
+    const openBackupModal = () => {
+        if (els.backup.modal) {
+            els.backup.modal.style.display = 'block';
+        }
+    };
+    
+    // 辅助函数 - 使用增强的存储管理（IndexedDB优先）
+    const saveBooks = async () => {
+        try {
+            // 使用storageManager进行异步安全存储
+            if (window.storageManager) {
+                const success = await window.storageManager.safeSet('novelEditorBooks', state.books);
+                if (!success) {
+                    console.warn('存储失败但会使用后备机制');
+                }
+            } else {
+                // 降级方案
+                localStorage.setItem('novelEditorBooks', JSON.stringify(state.books));
+            }
+            return true;
+        } catch (e) {
+            console.error('书籍数据保存失败:', e);
+            alert('警告：无法保存书籍数据，请检查浏览器存储空间是否充足。');
+            return false;
+        }
+    };
+    
+    const loadBooks = async () => {
+        try {
+            if (window.storageManager) {
+                const saved = await window.storageManager.safeGet('novelEditorBooks');
+                state.books = saved || [];
+            } else {
+                // 降级方案
+                const saved = localStorage.getItem('novelEditorBooks');
+                state.books = saved ? JSON.parse(saved) : [];
+            }
+            return true;
+        } catch (e) {
+            console.error('解析书籍数据失败:', e);
+            state.books = [];
+            return false;
+        }
     };
 
-    const saveAppSettings = () => {
-        localStorage.setItem('novelEditorSettings', JSON.stringify(state.settings));
-        applyAppSettings();
+    const saveAppSettings = async () => {
+        try {
+            // 保存自动备份设置
+            if (els.backup.autoBackupToggle && els.backup.autoBackupFrequency) {
+                state.settings.autoBackup = state.settings.autoBackup || {};
+                state.settings.autoBackup.enabled = els.backup.autoBackupToggle.checked;
+                state.settings.autoBackup.frequency = els.backup.autoBackupFrequency.value;
+            }
+            
+            if (window.storageManager) {
+                const success = await window.storageManager.safeSet('novelEditorSettings', state.settings);
+                if (!success) {
+                    console.warn('存储失败但会使用后备机制');
+                }
+            } else {
+                // 降级方案
+                localStorage.setItem('novelEditorSettings', JSON.stringify(state.settings));
+            }
+            applyAppSettings();
+            return true;
+        } catch (e) {
+            console.error('设置保存失败:', e);
+            applyAppSettings(); // 即使保存失败，仍应用当前设置
+            return false;
+        }
     };
 
-    const loadAppSettings = () => {
-        const saved = localStorage.getItem('novelEditorSettings');
-        if (saved) state.settings = JSON.parse(saved);
-        applyAppSettings();
+    const loadAppSettings = async () => {
+        try {
+            if (window.storageManager) {
+                const saved = await window.storageManager.safeGet('novelEditorSettings');
+                if (saved) {
+                    state.settings = saved;
+                }
+            } else {
+                // 降级方案
+                const saved = localStorage.getItem('novelEditorSettings');
+                if (saved) state.settings = JSON.parse(saved);
+            }
+            
+            // 初始化自动备份设置
+            if (!state.settings.autoBackup) {
+                state.settings.autoBackup = {
+                    enabled: false,
+                    frequency: 'daily',
+                    lastBackup: null
+                };
+            }
+            
+            // 应用自动备份设置到UI
+            if (els.backup.autoBackupToggle) {
+                els.backup.autoBackupToggle.checked = state.settings.autoBackup.enabled;
+            }
+            if (els.backup.autoBackupFrequency && state.settings.autoBackup.frequency) {
+                els.backup.autoBackupFrequency.value = state.settings.autoBackup.frequency;
+            }
+            
+            applyAppSettings();
+            
+            // 检查是否需要自动备份
+            checkAutoBackup();
+            
+            return true;
+        } catch (e) {
+            console.error('解析设置数据失败:', e);
+            applyAppSettings(); // 应用默认设置
+            return false;
+        }
     };
 
     // 应用设置
@@ -278,7 +538,7 @@
     };
 
     // 书籍管理函数
-    const createNewBook = (title, description = '', coverImage = null) => {
+    const createNewBook = async (title, description = '', coverImage = null) => {
         const newBook = {
             id: Date.now().toString(),
             title,
@@ -287,7 +547,7 @@
             chapters: []
         };
         state.books.unshift(newBook);
-        saveBooks();
+        await saveBooks();
         updateBooksGrid();
         return newBook.id;
     };
@@ -307,12 +567,12 @@
 
     };
 
-    const updateBookInfo = (title, description, coverImage = undefined) => {
+    const updateBookInfo = async (title, description, coverImage = undefined) => {
         if (!state.currentBook) return;
         state.currentBook.title = title;
         state.currentBook.description = description;
         if (coverImage !== undefined) state.currentBook.coverImage = coverImage;
-        saveBooks();
+        await saveBooks();
     };
 
     // 章节管理函数
@@ -357,10 +617,10 @@
         }
     };
 
-    const saveChaptersToBook = () => {
+    const saveChaptersToBook = async () => {
         if (!state.currentBook) return;
         state.currentBook.chapters = state.chapters;
-        saveBooks();
+        await saveBooks();
     };
 
     const renameChapter = (chapterId, newName) => {
@@ -461,11 +721,11 @@
             btn.addEventListener('click', () => selectBook(btn.dataset.id));
         });
         document.querySelectorAll('.book-card .delete-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
+            btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 if (confirm('确定要删除这部作品吗？')) {
                     state.books = state.books.filter(book => book.id !== btn.dataset.id);
-                    saveBooks();
+                    await saveBooks();
                     updateBooksGrid();
                 }
             });
@@ -722,12 +982,75 @@
     };
 
     // 事件监听设置
-    const setupEvents = () => {
+    const setupEvents = async () => {
         // 视图切换
         els.bookshelf.backBtn.addEventListener('click', () => {
             saveCurrentChapter();
             saveChaptersToBook();
             showBookshelf();
+        });
+        
+        // 添加备份按钮事件
+        if (els.editor.backupBtn) {
+            els.editor.backupBtn.addEventListener('click', openBackupModal);
+        }
+        
+        // 备份模态框事件
+        if (els.backup.createBackupBtn) {
+            els.backup.createBackupBtn.addEventListener('click', createBackup);
+        }
+        if (els.backup.restoreBackupBtn) {
+            els.backup.restoreBackupBtn.addEventListener('click', () => {
+                const file = els.backup.restoreBackupInput?.files[0];
+                if (file) {
+                    restoreBackup(file);
+                    if (els.backup.restoreBackupInput) {
+                        els.backup.restoreBackupInput.value = ''; // 清空文件选择
+                    }
+                } else {
+                    alert('请选择要恢复的备份文件');
+                }
+            });
+        }
+        
+        // 关闭备份模态框
+        if (els.backup.closeBtn) {
+            els.backup.closeBtn.addEventListener('click', () => {
+                if (els.backup.modal) els.backup.modal.style.display = 'none';
+            });
+        }
+        if (els.backup.closeModalBtn) {
+            els.backup.closeModalBtn.addEventListener('click', () => {
+                if (els.backup.modal) els.backup.modal.style.display = 'none';
+            });
+        }
+        
+        // 自动备份设置变更
+        if (els.backup.autoBackupToggle) {
+            els.backup.autoBackupToggle.addEventListener('change', async () => {
+                state.settings.autoBackup = state.settings.autoBackup || {};
+                state.settings.autoBackup.enabled = els.backup.autoBackupToggle.checked;
+                await saveAppSettings();
+            });
+        }
+        if (els.backup.autoBackupFrequency) {
+            els.backup.autoBackupFrequency.addEventListener('change', async () => {
+                state.settings.autoBackup = state.settings.autoBackup || {};
+                state.settings.autoBackup.frequency = els.backup.autoBackupFrequency.value;
+                await saveAppSettings();
+            });
+        }
+        
+        // 添加备份键盘快捷键
+        document.addEventListener('keydown', e => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+                e.preventDefault();
+                openBackupModal();
+            }
+        });
+        
+        // 重新添加视图切换事件（为了确保完整覆盖）
+        els.bookshelf.backBtn.addEventListener('click', () => {
         });
         
         // 创建新作品
@@ -784,8 +1107,8 @@
             const title = els.createBook.titleInput.value.trim();
             if (!title) return alert('请输入作品名称');
             
-            const processCover = (coverImage = null) => {
-                const newBookId = createNewBook(title, els.createBook.descInput.value.trim(), coverImage);
+            const processCover = async (coverImage = null) => {
+                const newBookId = await createNewBook(title, els.createBook.descInput.value.trim(), coverImage);
                 els.createBook.modal.style.display = 'none';
                 selectBook(newBookId);
                 els.createBook.coverInput.value = '';
@@ -845,10 +1168,10 @@
         });
         
         // 移除封面
-        els.bookInfo.removeCoverBtn.addEventListener('click', () => {
+        els.bookInfo.removeCoverBtn.addEventListener('click', async () => {
             if (!state.currentBook) return;
             state.currentBook.coverImage = null;
-            saveBooks();
+            await saveBooks();
             els.bookInfo.coverPreview.container.style.display = 'none';
             els.bookInfo.coverInput.value = '';
         });
@@ -1121,7 +1444,7 @@
         settingsBtns.bookshelf.addEventListener('click', openSettingsModal);
         settingsBtns.editor.addEventListener('click', openSettingsModal);
         
-        els.settings.saveBtn.addEventListener('click', () => {
+        els.settings.saveBtn.addEventListener('click', async () => {
             let selectedTheme = 'default';
             els.settings.themeRadios.forEach(radio => {
                 if (radio.checked) selectedTheme = radio.value;
@@ -1148,7 +1471,7 @@
                 state.settings.backgroundColor = els.settings.backgroundColor.value;
             }
             
-            saveAppSettings();
+            await saveAppSettings();
             updateBooksGrid();
             els.settings.modal.style.display = 'none';
             
@@ -1389,56 +1712,43 @@
         }
     };
 
-    // 初始化应用
-    const initApp = () => {
+    // 初始化应用 - 支持异步存储操作
+    const initApp = async () => {
         try {
-            // 加载书籍数据
-            loadBooks();
+            // 等待storageManager初始化完成
+            if (window.storageManager && !window.storageManager.db) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
             
-            // 加载并应用设置
-            loadAppSettings();
+            // 异步加载书籍数据
+            await loadBooks();
+            
+            // 异步加载并应用设置
+            await loadAppSettings();
             
             // 更新UI
             updateBooksGrid();
             
             // 设置事件监听
-            if (typeof setupEvents === 'function') {
-                setupEvents();
-            }
-            
-            // 确保设置正确应用
-            applyAppSettings();
+            await setupEvents();
             
             // 初始化字数统计
             if (typeof updateWordCount === 'function') {
                 updateWordCount();
             }
+            
+            console.log('应用初始化成功，使用增强存储机制');
         } catch (error) {
             console.error('应用初始化失败:', error);
             // 尝试基本恢复
             if (quill) {
                 console.log('编辑器已成功初始化');
             }
+            // 显示友好错误提示
+            alert('应用初始化时发生错误，但仍将尝试以有限功能运行。建议刷新页面重试。');
         }
     };
 
-    // 检查setupEvents函数是否存在，不存在则创建一个基本版本
-    if (typeof setupEvents !== 'function') {
-        const setupEvents = () => {
-            console.log('使用默认的setupEvents函数');
-            
-            // 添加基本的键盘快捷键
-            document.addEventListener('keydown', function(e) {
-                // Ctrl+S 保存
-                if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                    e.preventDefault();
-                    if (typeof saveCurrentChapter === 'function') {
-                        saveCurrentChapter();
-                    }
-                }
-            });
-        };
-    }
-
+    // 启动应用
     initApp();
 })();

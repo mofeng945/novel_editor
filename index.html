@@ -52,6 +52,7 @@
                     <input type="checkbox" id="export-all-chapters" checked>
                     <label for="export-all-chapters">导出所有章节</label>
                     <button id="export-btn">导出TXT</button>
+                    <button id="backup-btn" class="btn-secondary">数据备份</button>
                 </div>
                 <span id="save-status">未保存</span>
                 <span id="chapter-word-count" class="word-count">本章：0</span>
@@ -262,6 +263,50 @@
         </div>
     </div>
     
+    <!-- 数据备份模态框 -->
+    <div id="backup-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>数据备份与恢复</h2>
+                <span id="close-backup-modal-btn" class="close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div class="backup-section">
+                    <h3>立即备份</h3>
+                    <p>创建当前所有数据的完整备份文件</p>
+                    <button id="create-backup-btn" class="btn-primary">创建备份</button>
+                </div>
+                
+                <div class="backup-section">
+                    <h3>恢复备份</h3>
+                    <p>从备份文件恢复所有数据</p>
+                    <input type="file" id="restore-backup-input" accept=".novelbackup">
+                    <button id="restore-backup-btn" class="btn-primary">恢复备份</button>
+                    <p class="warning-text">注意：恢复备份将覆盖当前所有数据，请确保已备份重要内容</p>
+                </div>
+                
+                <div class="backup-section">
+                    <h3>自动备份设置</h3>
+                    <label>
+                        <input type="checkbox" id="auto-backup-toggle">
+                        启用自动备份
+                    </label>
+                    <div class="auto-backup-options">
+                        <label for="auto-backup-frequency">备份频率：</label>
+                        <select id="auto-backup-frequency">
+                            <option value="daily">每天</option>
+                            <option value="weekly">每周</option>
+                            <option value="monthly">每月</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="close-backup-btn" class="btn-secondary">关闭</button>
+            </div>
+        </div>
+    </div>
+    
     <!-- 设置模态框 -->
     <div id="settings-modal" class="modal">
         <div class="modal-content">
@@ -331,28 +376,184 @@
     <!-- 主应用脚本 -->
     <script src="app.js"></script>
     
-    <!-- Service Worker注册 -->
+    <!-- 增强存储策略 - 使用IndexedDB作为主要存储，localStorage作为后备 -->
     <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/service-worker.js')
-                    .then(registration => {
-                        console.log('Service Worker 注册成功:', registration.scope);
-                    })
-                    .catch(error => {
-                        console.log('Service Worker 注册失败:', error);
-                    });
-            });
-        }
+        // IndexedDB存储管理器
+        const storageManager = {
+            dbName: 'NovelEditorDB',
+            dbVersion: 1,
+            db: null,
+            
+            // 初始化IndexedDB
+            initDB: () => {
+                return new Promise((resolve, reject) => {
+                    if (!('indexedDB' in window)) {
+                        console.warn('浏览器不支持IndexedDB，将使用localStorage');
+                        resolve(false);
+                        return;
+                    }
+                    
+                    const request = indexedDB.open(storageManager.dbName, storageManager.dbVersion);
+                    
+                    request.onupgradeneeded = (event) => {
+                        const db = event.target.result;
+                        // 创建存储小说和设置的对象存储
+                        if (!db.objectStoreNames.contains('books')) {
+                            db.createObjectStore('books');
+                        }
+                        if (!db.objectStoreNames.contains('settings')) {
+                            db.createObjectStore('settings');
+                        }
+                    };
+                    
+                    request.onsuccess = (event) => {
+                        storageManager.db = event.target.result;
+                        console.log('IndexedDB初始化成功');
+                        resolve(true);
+                    };
+                    
+                    request.onerror = (event) => {
+                        console.error('IndexedDB初始化失败:', event.target.error);
+                        resolve(false);
+                    };
+                });
+            },
+            
+            // 检查存储是否可用
+            isAvailable: async () => {
+                // 先尝试IndexedDB
+                const idbAvailable = await storageManager.initDB();
+                if (idbAvailable) return true;
+                
+                // 后备方案：检查localStorage
+                try {
+                    const test = '__storage_test__';
+                    localStorage.setItem(test, test);
+                    localStorage.removeItem(test);
+                    return true;
+                } catch (e) {
+                    console.error('所有存储机制不可用:', e);
+                    return false;
+                }
+            },
+            
+            // 安全的存储方法 - 优先使用IndexedDB
+            safeSet: async (key, value) => {
+                // 先尝试IndexedDB
+                if (storageManager.db) {
+                    try {
+                        const storeName = key === 'novelEditorBooks' ? 'books' : 'settings';
+                        const transaction = storageManager.db.transaction([storeName], 'readwrite');
+                        const store = transaction.objectStore(storeName);
+                        
+                        // 对于books存储，使用固定键名
+                        const storeKey = storeName === 'books' ? 'allBooks' : key;
+                        
+                        await store.put(value, storeKey);
+                        console.log(`数据已保存到IndexedDB: ${key}`);
+                        return true;
+                    } catch (e) {
+                        console.warn('IndexedDB存储失败，使用后备方案:', e);
+                    }
+                }
+                
+                // 后备方案：使用localStorage
+                try {
+                    localStorage.setItem(key, JSON.stringify(value));
+                    return true;
+                } catch (e) {
+                    console.error('存储数据失败:', e);
+                    return false;
+                }
+            },
+            
+            // 安全的读取方法 - 优先使用IndexedDB
+            safeGet: async (key) => {
+                // 先尝试IndexedDB
+                if (storageManager.db) {
+                    try {
+                        const storeName = key === 'novelEditorBooks' ? 'books' : 'settings';
+                        const transaction = storageManager.db.transaction([storeName], 'readonly');
+                        const store = transaction.objectStore(storeName);
+                        
+                        // 对于books存储，使用固定键名
+                        const storeKey = storeName === 'books' ? 'allBooks' : key;
+                        
+                        return new Promise((resolve) => {
+                            const request = store.get(storeKey);
+                            request.onsuccess = () => {
+                                console.log(`从IndexedDB读取数据: ${key}`);
+                                resolve(request.result !== undefined ? request.result : null);
+                            };
+                            request.onerror = () => {
+                                resolve(null);
+                            };
+                        });
+                    } catch (e) {
+                        console.warn('IndexedDB读取失败，使用后备方案:', e);
+                    }
+                }
+                
+                // 后备方案：使用localStorage
+                try {
+                    const item = localStorage.getItem(key);
+                    return item ? JSON.parse(item) : null;
+                } catch (e) {
+                    console.error('读取数据失败:', e);
+                    return null;
+                }
+            },
+            
+            // 从localStorage迁移数据到IndexedDB（一次性操作）
+            migrateFromLocalStorage: async () => {
+                try {
+                    // 检查是否已经迁移过
+                    const migrationKey = 'novelEditorMigrationComplete';
+                    if (localStorage.getItem(migrationKey) === 'true') {
+                        return;
+                    }
+                    
+                    // 尝试迁移books数据
+                    const booksData = localStorage.getItem('novelEditorBooks');
+                    if (booksData) {
+                        await storageManager.safeSet('novelEditorBooks', JSON.parse(booksData));
+                    }
+                    
+                    // 尝试迁移settings数据
+                    const settingsData = localStorage.getItem('novelEditorSettings');
+                    if (settingsData) {
+                        await storageManager.safeSet('novelEditorSettings', JSON.parse(settingsData));
+                    }
+                    
+                    // 标记迁移完成
+                    localStorage.setItem(migrationKey, 'true');
+                    console.log('数据从localStorage迁移到IndexedDB完成');
+                } catch (e) {
+                    console.error('数据迁移失败:', e);
+                }
+            }
+        };
+        
+        // 提前初始化存储
+        (async () => {
+            const isAvailable = await storageManager.isAvailable();
+            if (isAvailable) {
+                console.log('增强存储功能正常，应用将优先使用IndexedDB进行数据管理');
+                // 尝试从localStorage迁移数据
+                await storageManager.migrateFromLocalStorage();
+            } else {
+                console.warn('存储功能受限，部分功能可能无法正常使用');
+                alert('警告：浏览器的存储功能不可用，建议清理浏览器缓存或使用其他浏览器以获得最佳体验。');
+            }
+        })();
         
         // 监听在线/离线状态变化
         window.addEventListener('online', () => {
             console.log('网络连接已恢复');
-            // 可以在这里添加一些同步操作
         });
         
         window.addEventListener('offline', () => {
-            console.log('网络连接已断开，应用将在离线模式下继续工作');
+            console.log('网络连接已断开，应用将继续使用本地存储工作');
         });
     </script>
 </body>
